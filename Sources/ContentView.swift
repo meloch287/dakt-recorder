@@ -59,7 +59,7 @@ struct ContentView: View {
                         pulse = true
                     }
                 }
-            Text("Meeting Recorder")
+            Text("DaktRecorder")
                 .font(.headline)
             Spacer()
         }

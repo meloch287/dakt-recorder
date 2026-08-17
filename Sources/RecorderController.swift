@@ -138,7 +138,7 @@ final class RecorderController: ObservableObject {
             errorMessage = nil
             status = hasSystemAudio
                 ? "Готово: \(folder.lastPathComponent)"
-                : "Готово, но системный звук пустой — проверь разрешение на запись экрана"
+                : "Готово, но системный звук пустой — проверьте разрешение на запись экрана"
         } catch {
             errorMessage = describe(error)
             status = "Готов к записи"
@@ -163,7 +163,7 @@ final class RecorderController: ObservableObject {
 
     private func makeFolder() throws -> URL {
         let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MeetingRecorder", isDirectory: true)
+            .appendingPathComponent("DaktRecorder", isDirectory: true)
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
         let folder = root.appendingPathComponent(formatter.string(from: Date()), isDirectory: true)
@@ -204,7 +204,7 @@ final class RecorderController: ObservableObject {
         }
         let nsError = error as NSError
         if nsError.domain.contains("SCStream") {
-            return "Нет доступа к записи экрана и системного звука. Открой Системные настройки → Конфиденциальность и безопасность → Запись экрана, включи MeetingRecorder и перезапусти приложение."
+            return "Нет доступа к записи экрана и системного звука. Откройте Системные настройки → Конфиденциальность и безопасность → Запись экрана, включите DaktRecorder и перезапустите приложение."
         }
         return nsError.localizedDescription
     }

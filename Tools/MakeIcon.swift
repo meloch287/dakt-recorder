@@ -3,7 +3,7 @@
 
 import AppKit
 
-let outputPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "MeetingRecorder.iconset"
+let outputPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "DaktRecorder.iconset"
 let outputDir = URL(fileURLWithPath: outputPath)
 try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-APP="MeetingRecorder.app"
+APP="DaktRecorder.app"
 ARCH="$(uname -m)"
 TARGET="${ARCH}-apple-macos13.0"
 
@@ -19,21 +19,21 @@ cp Info.plist "$APP/Contents/Info.plist"
 
 swiftc -O -target "$TARGET" \
     -framework SwiftUI -framework AVFoundation -framework ScreenCaptureKit -framework AppKit \
-    -o "$APP/Contents/MacOS/MeetingRecorder" \
+    -o "$APP/Contents/MacOS/DaktRecorder" \
     Sources/*.swift
 
 # Иконка рисуется кодом, чтобы в репозитории не лежали бинарные ассеты.
 if command -v iconutil >/dev/null 2>&1; then
     mkdir -p build
-    swift Tools/MakeIcon.swift build/MeetingRecorder.iconset >/dev/null
-    iconutil -c icns build/MeetingRecorder.iconset -o "$APP/Contents/Resources/MeetingRecorder.icns"
+    swift Tools/MakeIcon.swift build/DaktRecorder.iconset >/dev/null
+    iconutil -c icns build/DaktRecorder.iconset -o "$APP/Contents/Resources/DaktRecorder.icns"
     rm -rf build
 else
     echo "iconutil недоступен — приложение соберётся без иконки."
 fi
 
 # Ad-hoc подпись: без неё macOS может забыть выданные разрешения после сборки.
-codesign --force --sign - --identifier local.meetingrecorder "$APP" >/dev/null
+codesign --force --sign - --identifier local.daktrecorder "$APP" >/dev/null
 
 echo "Готово: $(pwd)/$APP"
 echo "Запуск: open $APP"

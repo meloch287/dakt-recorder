@@ -2,12 +2,12 @@ import SwiftUI
 import AppKit
 
 @main
-struct MeetingRecorderApp: App {
+struct DaktRecorderApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var recorder = RecorderController()
 
     var body: some Scene {
-        WindowGroup("Meeting Recorder") {
+        WindowGroup("DaktRecorder") {
             ContentView()
                 .environmentObject(recorder)
                 .onAppear { delegate.recorder = recorder }

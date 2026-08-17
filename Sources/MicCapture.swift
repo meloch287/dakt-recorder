@@ -26,7 +26,7 @@ final class MicCapture {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw RecorderError.message("Микрофон недоступен. Проверь входное устройство в системных настройках звука.")
+            throw RecorderError.message("Микрофон недоступен. Проверьте входное устройство в системных настройках звука.")
         }
 
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, when in
