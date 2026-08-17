@@ -61,7 +61,27 @@ enum Transcription {
             request.requiresOnDeviceRecognition = true
         }
 
-        let transcription: SFTranscription = try await withCheckedThrowingContinuation { continuation in
+        let transcription = try await withThrowingTaskGroup(of: SFTranscription.self) { group -> SFTranscription in
+            group.addTask { try await result(recognizer: recognizer, request: request) }
+            group.addTask {
+                // Распознаватель изредка не отвечает вовсе; лучше честная ошибка,
+                // чем вечный статус «Расшифровываю…».
+                try await Task.sleep(nanoseconds: 600_000_000_000)
+                throw RecorderError.message("Распознавание речи не ответило за 10 минут.")
+            }
+            guard let first = try await group.next() else {
+                throw RecorderError.message("Распознавание речи не дало результата.")
+            }
+            group.cancelAll()
+            return first
+        }
+
+        return lines(from: transcription, speaker: speaker)
+    }
+
+    private static func result(recognizer: SFSpeechRecognizer,
+                               request: SFSpeechURLRecognitionRequest) async throws -> SFTranscription {
+        try await withCheckedThrowingContinuation { continuation in
             var finished = false
             recognizer.recognitionTask(with: request) { result, error in
                 guard !finished else { return }
@@ -76,12 +96,15 @@ enum Transcription {
                 }
             }
         }
+    }
 
-        // Сегменты склеиваем в реплики: новая реплика начинается после паузы.
+    /// Сегменты склеиваем в реплики: новая реплика начинается после паузы.
+    private static func lines(from transcription: SFTranscription, speaker: String) -> [Line] {
         var lines: [Line] = []
         var current = ""
         var start: TimeInterval = 0
         var previousEnd: TimeInterval = -1
+
         for segment in transcription.segments {
             if previousEnd < 0 || segment.timestamp - previousEnd > 1.5 {
                 if !current.isEmpty {

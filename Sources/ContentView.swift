@@ -65,9 +65,15 @@ struct ContentView: View {
                 // Анимация запускается один раз и идёт всегда; во время записи она
                 // управляет прозрачностью точки, в покое точка статична.
                 .opacity(recorder.isRecording && !recorder.isPaused ? (pulse ? 1 : 0.25) : 0.7)
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                        pulse = true
+                // Бесконечная анимация включается только во время записи: в покое
+                // она зря крутила отрисовку каждый кадр.
+                .onChange(of: recorder.isRecording && !recorder.isPaused) { active in
+                    if active {
+                        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                            pulse = true
+                        }
+                    } else {
+                        withAnimation(.default) { pulse = false }
                     }
                 }
             Text("DaktRecorder")
