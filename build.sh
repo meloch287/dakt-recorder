@@ -19,6 +19,7 @@ cp Info.plist "$APP/Contents/Info.plist"
 
 swiftc -O -target "$TARGET" \
     -framework SwiftUI -framework AVFoundation -framework ScreenCaptureKit -framework AppKit \
+    -framework Speech -framework CoreAudio -framework Carbon \
     -o "$APP/Contents/MacOS/DaktRecorder" \
     Sources/*.swift
 

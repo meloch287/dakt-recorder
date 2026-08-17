@@ -3,13 +3,23 @@ import AVFoundation
 import CoreMedia
 import ScreenCaptureKit
 
-/// Захват системного звука (всё, что звучит из колонок/наушников — т.е. голоса в Zoom)
-/// через ScreenCaptureKit. Никаких виртуальных аудиодрайверов не требуется.
+/// Захват системного звука через ScreenCaptureKit: либо всё, что звучит в системе,
+/// либо только выбранное приложение. Виртуальные аудиодрайверы не нужны.
 final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
+    struct Application: Identifiable, Hashable {
+        var id: String { bundleID }
+        let bundleID: String
+        let name: String
+    }
+
     private let audioQueue = DispatchQueue(label: "recorder.system.audio")
     private let videoQueue = DispatchQueue(label: "recorder.system.video")
-    private var stream: SCStream?
     private let writer: PCMWriter
+    private let targetBundleID: String
+    private var stream: SCStream?
+
+    /// См. комментарий к паузе в MicCapture.
+    var isPaused = false
 
     /// Момент первого сэмпла в секундах хост-таймера — нужен для синхронизации дорожек.
     private(set) var startHostSeconds: Double?
@@ -20,11 +30,26 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     var frameCount: AVAudioFramePosition { writer.frameCount }
     var fileURL: URL { writer.url }
 
-    init(url: URL) {
-        writer = PCMWriter(url: url)
+    init(url: URL, targetBundleID: String = "", compressed: Bool = false) {
+        self.targetBundleID = targetBundleID
+        writer = PCMWriter(url: url, compressed: compressed)
         super.init()
         writer.onError = { [weak self] in self?.onError?($0) }
         writer.onLevel = { [weak self] in self?.onLevel?($0) }
+    }
+
+    /// Приложения, которые можно выбрать источником звука.
+    static func applications() async throws -> [Application] {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        var seen = Set<String>()
+        var result: [Application] = []
+        for app in content.applications {
+            let bundleID = app.bundleIdentifier
+            guard !bundleID.isEmpty, seen.insert(bundleID).inserted else { continue }
+            let name = app.applicationName.isEmpty ? bundleID : app.applicationName
+            result.append(Application(bundleID: bundleID, name: name))
+        }
+        return result.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     func start() async throws {
@@ -32,7 +57,14 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         guard let display = content.displays.first else {
             throw RecorderError.message("Не найден дисплей — системный звук захватить нельзя.")
         }
-        let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+
+        let filter: SCContentFilter
+        if !targetBundleID.isEmpty,
+           let app = content.applications.first(where: { $0.bundleIdentifier == targetBundleID }) {
+            filter = SCContentFilter(display: display, including: [app], exceptingWindows: [])
+        } else {
+            filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+        }
 
         let config = SCStreamConfiguration()
         config.capturesAudio = true
@@ -63,7 +95,7 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     // MARK: - SCStreamOutput
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .audio, CMSampleBufferDataIsReady(sampleBuffer) else { return }
+        guard type == .audio, !isPaused, CMSampleBufferDataIsReady(sampleBuffer) else { return }
         guard let description = CMSampleBufferGetFormatDescription(sampleBuffer),
               var asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee,
               let format = AVAudioFormat(streamDescription: &asbd) else { return }

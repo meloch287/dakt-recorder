@@ -20,6 +20,8 @@
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Расшифровка записанных дорожек в текст выполняется встроенным распознавателем macOS.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Нужен доступ к микрофону, чтобы записать твой голос во время встречи.</string>
     <key>CFBundleIconFile</key>

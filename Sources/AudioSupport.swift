@@ -45,6 +45,7 @@ extension AVAudioPCMBuffer {
 /// Пишет входящие PCM-буферы в .caf, приводя их к каноническому формату.
 final class PCMWriter {
     let url: URL
+    private let compressed: Bool
     private var file: AVAudioFile?
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
@@ -54,7 +55,10 @@ final class PCMWriter {
     var onError: ((String) -> Void)?
     var onLevel: ((Float) -> Void)?
 
-    init(url: URL) { self.url = url }
+    init(url: URL, compressed: Bool = false) {
+        self.url = url
+        self.compressed = compressed
+    }
 
     /// Вызывать всегда с одной и той же очереди.
     func write(_ buffer: AVAudioPCMBuffer) {
@@ -100,7 +104,7 @@ final class PCMWriter {
             converter = conv
         }
         do {
-            file = try AVAudioFile(forWriting: url, settings: target.settings)
+            file = try AVAudioFile(forWriting: url, settings: fileSettings(for: target))
             targetFormat = target
             return true
         } catch {
@@ -133,6 +137,17 @@ final class PCMWriter {
         return out.frameLength > 0 ? out : nil
     }
 
+    /// Сырые дорожки можно писать сжатыми: разница на диске примерно в десять раз.
+    private func fileSettings(for format: AVAudioFormat) -> [String: Any] {
+        guard compressed else { return format.settings }
+        return [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: format.sampleRate,
+            AVNumberOfChannelsKey: Int(format.channelCount),
+            AVEncoderBitRateKey: 128_000
+        ]
+    }
+
     /// Об ошибке сообщаем один раз, иначе интерфейс завалит одним и тем же текстом
     /// на каждом аудиобуфере. Ошибки подготовки фатальны: писать дальше некуда.
     private func report(_ text: String, fatal: Bool = false) {
@@ -140,5 +155,17 @@ final class PCMWriter {
         guard !reported else { return }
         reported = true
         onError?(text)
+    }
+}
+
+extension AVAudioPCMBuffer {
+    /// Простой шумодав: тихий буфер целиком превращается в тишину, чтобы дыхание
+    /// и гул комнаты не подмешивались в паузах. Длину не меняем — иначе поедет
+    /// синхронизация дорожек.
+    func applyNoiseGate(threshold: Float) {
+        guard peakLevel < threshold, let data = floatChannelData else { return }
+        for ch in 0..<Int(format.channelCount) {
+            memset(data[ch], 0, Int(frameLength) * MemoryLayout<Float>.size)
+        }
     }
 }

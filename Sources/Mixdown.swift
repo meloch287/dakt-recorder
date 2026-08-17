@@ -19,7 +19,7 @@ struct MixSource {
 enum Mixdown {
     /// Возвращает путь к записанному файлу: m4a, либо wav, если AAC-кодировщик недоступен.
     @discardableResult
-    static func mix(sources: [MixSource], to output: URL) throws -> URL {
+    static func mix(sources: [MixSource], to output: URL, normalize: Bool = false) throws -> URL {
         struct Track {
             let file: AVAudioFile
             let offset: AVAudioFramePosition
@@ -32,12 +32,17 @@ enum Mixdown {
         for source in sources {
             let file = try AVAudioFile(forReading: source.url)
             guard file.length > 0 else { continue }
+            var gain = source.gain
+            if normalize {
+                gain *= levelingGain(for: file)
+                file.framePosition = 0
+            }
             tracks.append(Track(
                 file: file,
                 offset: AVAudioFramePosition((source.startOffset * Canonical.sampleRate).rounded()),
                 length: file.length,
                 channels: Int(file.processingFormat.channelCount),
-                gain: source.gain
+                gain: gain
             ))
         }
         guard !tracks.isEmpty else {
@@ -123,5 +128,48 @@ enum Mixdown {
         let headroom = 1 - limitThreshold
         let shaped = limitThreshold + headroom * tanh((magnitude - limitThreshold) / headroom)
         return x < 0 ? -shaped : shaped
+    }
+}
+
+extension Mixdown {
+    /// Целевая средняя громкость дорожки: примерно −20 dBFS.
+    private static var targetRMS: Float { 0.1 }
+
+    /// Считает средний уровень дорожки и возвращает поправку, чтобы тихий
+    /// собеседник и громкий микрофон звучали одинаково. Поправка ограничена,
+    /// иначе тишина в дорожке вытянется в шум.
+    static func levelingGain(for file: AVAudioFile) -> Float {
+        let chunk: AVAudioFrameCount = 32_768
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: chunk) else { return 1 }
+        let channels = Int(file.processingFormat.channelCount)
+
+        var sum: Double = 0
+        var counted: Double = 0
+        file.framePosition = 0
+        while file.framePosition < file.length {
+            do {
+                try file.read(into: buffer, frameCount: chunk)
+            } catch {
+                break
+            }
+            guard buffer.frameLength > 0, let data = buffer.floatChannelData else { break }
+            for ch in 0..<channels {
+                let pointer = data[ch]
+                for i in 0..<Int(buffer.frameLength) {
+                    let value = pointer[i]
+                    // Тишину в расчёт не берём, иначе паузы занижают средний уровень.
+                    if abs(value) > 0.005 {
+                        sum += Double(value * value)
+                        counted += 1
+                    }
+                }
+            }
+        }
+        file.framePosition = 0
+        guard counted > 0 else { return 1 }
+
+        let rms = Float((sum / counted).squareRoot())
+        guard rms > 0 else { return 1 }
+        return min(4, max(0.25, targetRMS / rms))
     }
 }

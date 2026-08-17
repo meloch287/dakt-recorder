@@ -3,9 +3,10 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var recorder: RecorderController
     @State private var pulse = false
+    @State private var showSettings = false
 
     var body: some View {
-        VStack(spacing: 22) {
+        VStack(spacing: 20) {
             header
 
             Text(recorder.elapsedText)
@@ -18,7 +19,19 @@ struct ContentView: View {
                 LevelRow(title: "Zoom / системный звук", level: recorder.systemLevel, tint: .blue)
             }
 
-            recordButton
+            HStack(spacing: 18) {
+                recordButton
+                if recorder.isRecording {
+                    Button(action: recorder.togglePause) {
+                        Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .background(Circle().fill(Color.secondary.opacity(0.15)))
+                    .help(recorder.isPaused ? "Продолжить" : "Пауза")
+                }
+            }
 
             VStack(spacing: 6) {
                 Text(recorder.status)
@@ -42,18 +55,22 @@ struct ContentView: View {
             }
             .frame(minHeight: 54, alignment: .top)
         }
-        .padding(28)
+        .padding(24)
         .frame(width: 380)
+        .sheet(isPresented: $showSettings) {
+            SettingsView(preferences: recorder.preferences)
+                .environmentObject(recorder)
+        }
     }
 
     private var header: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(recorder.isRecording ? Color.red : Color.secondary.opacity(0.4))
+                .fill(recorder.isRecording && !recorder.isPaused ? Color.red : Color.secondary.opacity(0.4))
                 .frame(width: 9, height: 9)
                 // Анимация запускается один раз и идёт всегда; во время записи она
                 // управляет прозрачностью точки, в покое точка статична.
-                .opacity(recorder.isRecording ? (pulse ? 1 : 0.25) : 0.7)
+                .opacity(recorder.isRecording && !recorder.isPaused ? (pulse ? 1 : 0.25) : 0.7)
                 .onAppear {
                     withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
                         pulse = true
@@ -62,6 +79,15 @@ struct ContentView: View {
             Text("DaktRecorder")
                 .font(.headline)
             Spacer()
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 15))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Настройки")
         }
     }
 
