@@ -2,8 +2,14 @@ import Foundation
 import Combine
 
 /// Всё, что настраивается через шестерёнку. Значения переживают перезапуск.
-/// @AppStorage здесь не подходит: внутри ObservableObject он не рассылает
-/// изменения, и зависимые части интерфейса не обновлялись бы.
+///
+/// Здесь сознательно нет @Published и @AppStorage. @AppStorage внутри
+/// ObservableObject не рассылает изменения вовсе, а @Published рассылает их на
+/// каждую запись, даже если значение не изменилось. Второе приводило к
+/// зацикливанию: MenuBarExtra пишет в привязку isInserted то же самое значение
+/// при каждом обновлении сцены, @Published уведомлял, сцена перестраивалась,
+/// MenuBarExtra писал снова — главный поток уходил в бесконечную перерисовку.
+/// Поэтому каждый сеттер сам проверяет изменение и только тогда уведомляет.
 @MainActor
 final class Preferences: ObservableObject {
     enum Source: String, CaseIterable, Identifiable {
@@ -21,42 +27,107 @@ final class Preferences: ObservableObject {
 
     private let defaults = UserDefaults.standard
 
-    @Published var inputDeviceUID: String { didSet { save(inputDeviceUID, "inputDeviceUID") } }
-    @Published var source: Source { didSet { save(source.rawValue, "source") } }
-    @Published var targetBundleID: String { didSet { save(targetBundleID, "targetBundleID") } }
+    private var storedInputDeviceUID: String
+    private var storedSource: Source
+    private var storedTargetBundleID: String
+    private var storedHighPassFilter: Bool
+    private var storedNoiseGate: Bool
+    private var storedNormalizeTracks: Bool
+    private var storedCompressRawTracks: Bool
+    private var storedRemoveRawAfterMix: Bool
+    private var storedAutoStopOnSilence: Bool
+    private var storedSilenceMinutes: Int
+    private var storedTranscribe: Bool
+    private var storedTranscriptionLocale: String
+    private var storedShowMenuBarItem: Bool
+    private var storedGlobalHotKeyEnabled: Bool
 
-    @Published var highPassFilter: Bool { didSet { save(highPassFilter, "highPassFilter") } }
-    @Published var noiseGate: Bool { didSet { save(noiseGate, "noiseGate") } }
-    @Published var normalizeTracks: Bool { didSet { save(normalizeTracks, "normalizeTracks") } }
+    var inputDeviceUID: String {
+        get { storedInputDeviceUID }
+        set { update(&storedInputDeviceUID, newValue, "inputDeviceUID") }
+    }
 
-    @Published var compressRawTracks: Bool { didSet { save(compressRawTracks, "compressRawTracks") } }
-    @Published var removeRawAfterMix: Bool { didSet { save(removeRawAfterMix, "removeRawAfterMix") } }
+    var source: Source {
+        get { storedSource }
+        set { update(&storedSource, newValue, "source", raw: newValue.rawValue) }
+    }
 
-    @Published var autoStopOnSilence: Bool { didSet { save(autoStopOnSilence, "autoStopOnSilence") } }
-    @Published var silenceMinutes: Int { didSet { save(silenceMinutes, "silenceMinutes") } }
+    var targetBundleID: String {
+        get { storedTargetBundleID }
+        set { update(&storedTargetBundleID, newValue, "targetBundleID") }
+    }
 
-    @Published var transcribe: Bool { didSet { save(transcribe, "transcribe") } }
-    @Published var transcriptionLocale: String { didSet { save(transcriptionLocale, "transcriptionLocale") } }
+    var highPassFilter: Bool {
+        get { storedHighPassFilter }
+        set { update(&storedHighPassFilter, newValue, "highPassFilter") }
+    }
 
-    @Published var showMenuBarItem: Bool { didSet { save(showMenuBarItem, "showMenuBarItem") } }
-    @Published var globalHotKeyEnabled: Bool { didSet { save(globalHotKeyEnabled, "globalHotKeyEnabled") } }
+    var noiseGate: Bool {
+        get { storedNoiseGate }
+        set { update(&storedNoiseGate, newValue, "noiseGate") }
+    }
+
+    var normalizeTracks: Bool {
+        get { storedNormalizeTracks }
+        set { update(&storedNormalizeTracks, newValue, "normalizeTracks") }
+    }
+
+    var compressRawTracks: Bool {
+        get { storedCompressRawTracks }
+        set { update(&storedCompressRawTracks, newValue, "compressRawTracks") }
+    }
+
+    var removeRawAfterMix: Bool {
+        get { storedRemoveRawAfterMix }
+        set { update(&storedRemoveRawAfterMix, newValue, "removeRawAfterMix") }
+    }
+
+    var autoStopOnSilence: Bool {
+        get { storedAutoStopOnSilence }
+        set { update(&storedAutoStopOnSilence, newValue, "autoStopOnSilence") }
+    }
+
+    var silenceMinutes: Int {
+        get { storedSilenceMinutes }
+        set { update(&storedSilenceMinutes, newValue, "silenceMinutes") }
+    }
+
+    var transcribe: Bool {
+        get { storedTranscribe }
+        set { update(&storedTranscribe, newValue, "transcribe") }
+    }
+
+    var transcriptionLocale: String {
+        get { storedTranscriptionLocale }
+        set { update(&storedTranscriptionLocale, newValue, "transcriptionLocale") }
+    }
+
+    var showMenuBarItem: Bool {
+        get { storedShowMenuBarItem }
+        set { update(&storedShowMenuBarItem, newValue, "showMenuBarItem") }
+    }
+
+    var globalHotKeyEnabled: Bool {
+        get { storedGlobalHotKeyEnabled }
+        set { update(&storedGlobalHotKeyEnabled, newValue, "globalHotKeyEnabled") }
+    }
 
     init() {
         let defaults = UserDefaults.standard
-        inputDeviceUID = defaults.string(forKey: "inputDeviceUID") ?? ""
-        source = Source(rawValue: defaults.string(forKey: "source") ?? "") ?? .system
-        targetBundleID = defaults.string(forKey: "targetBundleID") ?? ""
-        highPassFilter = defaults.bool(forKey: "highPassFilter")
-        noiseGate = defaults.bool(forKey: "noiseGate")
-        normalizeTracks = defaults.object(forKey: "normalizeTracks") as? Bool ?? true
-        compressRawTracks = defaults.bool(forKey: "compressRawTracks")
-        removeRawAfterMix = defaults.bool(forKey: "removeRawAfterMix")
-        autoStopOnSilence = defaults.bool(forKey: "autoStopOnSilence")
-        silenceMinutes = defaults.object(forKey: "silenceMinutes") as? Int ?? 5
-        transcribe = defaults.bool(forKey: "transcribe")
-        transcriptionLocale = defaults.string(forKey: "transcriptionLocale") ?? "ru-RU"
-        showMenuBarItem = defaults.object(forKey: "showMenuBarItem") as? Bool ?? true
-        globalHotKeyEnabled = defaults.object(forKey: "globalHotKeyEnabled") as? Bool ?? true
+        storedInputDeviceUID = defaults.string(forKey: "inputDeviceUID") ?? ""
+        storedSource = Source(rawValue: defaults.string(forKey: "source") ?? "") ?? .system
+        storedTargetBundleID = defaults.string(forKey: "targetBundleID") ?? ""
+        storedHighPassFilter = defaults.bool(forKey: "highPassFilter")
+        storedNoiseGate = defaults.bool(forKey: "noiseGate")
+        storedNormalizeTracks = defaults.object(forKey: "normalizeTracks") as? Bool ?? true
+        storedCompressRawTracks = defaults.bool(forKey: "compressRawTracks")
+        storedRemoveRawAfterMix = defaults.bool(forKey: "removeRawAfterMix")
+        storedAutoStopOnSilence = defaults.bool(forKey: "autoStopOnSilence")
+        storedSilenceMinutes = defaults.object(forKey: "silenceMinutes") as? Int ?? 5
+        storedTranscribe = defaults.bool(forKey: "transcribe")
+        storedTranscriptionLocale = defaults.string(forKey: "transcriptionLocale") ?? "ru-RU"
+        storedShowMenuBarItem = defaults.object(forKey: "showMenuBarItem") as? Bool ?? true
+        storedGlobalHotKeyEnabled = defaults.object(forKey: "globalHotKeyEnabled") as? Bool ?? true
     }
 
     /// Расширение сырых дорожек зависит от того, сжимаем ли мы их на ходу.
@@ -70,7 +141,11 @@ final class Preferences: ObservableObject {
         ("fr-FR", "Français")
     ]
 
-    private func save(_ value: Any, _ key: String) {
-        defaults.set(value, forKey: key)
+    /// Уведомляем и пишем на диск только при настоящем изменении.
+    private func update<T: Equatable>(_ storage: inout T, _ value: T, _ key: String, raw: Any? = nil) {
+        guard storage != value else { return }
+        objectWillChange.send()
+        storage = value
+        defaults.set(raw ?? value, forKey: key)
     }
 }
