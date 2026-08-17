@@ -48,6 +48,8 @@ final class PCMWriter {
     private var file: AVAudioFile?
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
+    private var stopped = false
+    private var reported = false
     private(set) var frameCount: AVAudioFramePosition = 0
     var onError: ((String) -> Void)?
     var onLevel: ((Float) -> Void)?
@@ -56,7 +58,7 @@ final class PCMWriter {
 
     /// Вызывать всегда с одной и той же очереди.
     func write(_ buffer: AVAudioPCMBuffer) {
-        guard buffer.frameLength > 0 else { return }
+        guard !stopped, buffer.frameLength > 0 else { return }
         if file == nil, !prepare(for: buffer.format) { return }
         guard let file, let targetFormat else { return }
 
@@ -70,7 +72,7 @@ final class PCMWriter {
             frameCount += AVAudioFramePosition(out.frameLength)
             onLevel?(out.peakLevel)
         } catch {
-            onError?("Ошибка записи \(url.lastPathComponent): \(error.localizedDescription)")
+            report("Ошибка записи \(url.lastPathComponent): \(error.localizedDescription)")
         }
     }
 
@@ -87,8 +89,13 @@ final class PCMWriter {
             && !inputFormat.isInterleaved
         if !matches {
             guard let conv = AVAudioConverter(from: inputFormat, to: target) else {
-                onError?("Не удалось создать конвертер \(inputFormat) → \(target)")
+                report("Не удалось создать конвертер \(inputFormat) → \(target)", fatal: true)
                 return false
+            }
+            // Многоканальный вход без явной карты каналов конвертер не принимает:
+            // берём первые один-два канала.
+            if inputFormat.channelCount > target.channelCount {
+                conv.channelMap = (0..<Int(target.channelCount)).map { NSNumber(value: $0) }
             }
             converter = conv
         }
@@ -97,7 +104,7 @@ final class PCMWriter {
             targetFormat = target
             return true
         } catch {
-            onError?("Не удалось создать файл \(url.lastPathComponent): \(error.localizedDescription)")
+            report("Не удалось создать файл \(url.lastPathComponent): \(error.localizedDescription)", fatal: true)
             return false
         }
     }
@@ -120,9 +127,18 @@ final class PCMWriter {
             return buffer
         }
         if status == .error {
-            onError?("Ошибка конвертации: \(error?.localizedDescription ?? "неизвестно")")
+            report("Ошибка конвертации: \(error?.localizedDescription ?? "неизвестно")")
             return nil
         }
         return out.frameLength > 0 ? out : nil
+    }
+
+    /// Об ошибке сообщаем один раз, иначе интерфейс завалит одним и тем же текстом
+    /// на каждом аудиобуфере. Ошибки подготовки фатальны: писать дальше некуда.
+    private func report(_ text: String, fatal: Bool = false) {
+        if fatal { stopped = true }
+        guard !reported else { return }
+        reported = true
+        onError?(text)
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var recorder: RecorderController
+    @State private var pulse = false
 
     var body: some View {
         VStack(spacing: 22) {
@@ -33,7 +34,7 @@ struct ContentView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                if recorder.lastFolder != nil && !recorder.isRecording {
+                if recorder.lastMix != nil && !recorder.isRecording {
                     Button("Показать запись в Finder") { recorder.revealLastRecording() }
                         .buttonStyle(.link)
                         .font(.caption)
@@ -50,8 +51,14 @@ struct ContentView: View {
             Circle()
                 .fill(recorder.isRecording ? Color.red : Color.secondary.opacity(0.4))
                 .frame(width: 9, height: 9)
-                .opacity(recorder.isRecording ? 1 : 0.6)
-                .animation(.easeInOut(duration: 0.7).repeatForever(), value: recorder.isRecording)
+                // Анимация запускается один раз и идёт всегда; во время записи она
+                // управляет прозрачностью точки, в покое точка статична.
+                .opacity(recorder.isRecording ? (pulse ? 1 : 0.25) : 0.7)
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                        pulse = true
+                    }
+                }
             Text("Meeting Recorder")
                 .font(.headline)
             Spacer()

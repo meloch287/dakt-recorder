@@ -22,7 +22,7 @@
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Нужен доступ к микрофону, чтобы записать твой голос во время встречи.</string>
-    <key>NSCameraUsageDescription</key>
-    <string>Не используется.</string>
+    <key>CFBundleIconFile</key>
+    <string>MeetingRecorder</string>
 </dict>
 </plist>

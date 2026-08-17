@@ -17,7 +17,9 @@ struct MixSource {
 
 /// Складывает дорожки в один стерео-файл, выравнивая их по времени старта.
 enum Mixdown {
-    static func mix(sources: [MixSource], to output: URL) throws {
+    /// Возвращает путь к записанному файлу: m4a, либо wav, если AAC-кодировщик недоступен.
+    @discardableResult
+    static func mix(sources: [MixSource], to output: URL) throws -> URL {
         struct Track {
             let file: AVAudioFile
             let offset: AVAudioFramePosition
@@ -44,13 +46,22 @@ enum Mixdown {
 
         let total = tracks.map { $0.offset + $0.length }.max() ?? 0
         let mixFormat = Canonical.format(channels: 2)
-        let settings: [String: Any] = [
+        let aacSettings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: Canonical.sampleRate,
             AVNumberOfChannelsKey: 2,
             AVEncoderBitRateKey: 160_000
         ]
-        let out = try AVAudioFile(forWriting: output, settings: settings)
+
+        var outputURL = output
+        var out: AVAudioFile
+        do {
+            out = try AVAudioFile(forWriting: output, settings: aacSettings)
+        } catch {
+            // Кодировщик AAC недоступен — не теряем сведение, пишем WAV рядом.
+            outputURL = output.deletingPathExtension().appendingPathExtension("wav")
+            out = try AVAudioFile(forWriting: outputURL, settings: mixFormat.settings)
+        }
 
         let chunk: AVAudioFrameCount = 16_384
         guard let mixBuffer = AVAudioPCMBuffer(pcmFormat: mixFormat, frameCapacity: chunk),
@@ -89,16 +100,28 @@ enum Mixdown {
                 }
             }
 
-            // Мягкое ограничение, чтобы сумма двух дорожек не клиппировала.
             for ch in 0..<2 {
                 let p = mixChannels[ch]
                 for i in 0..<Int(frames) {
-                    p[i] = max(-1, min(1, p[i]))
+                    p[i] = softLimit(p[i])
                 }
             }
 
             try out.write(from: mixBuffer)
             position += AVAudioFramePosition(frames)
         }
+        return outputURL
+    }
+
+    /// Ниже порога сигнал не трогаем, выше — плавно поджимаем к единице,
+    /// чтобы одновременная речь не превращалась в треск от обрезанных пиков.
+    private static let limitThreshold: Float = 0.8
+
+    private static func softLimit(_ x: Float) -> Float {
+        let magnitude = abs(x)
+        guard magnitude > limitThreshold else { return x }
+        let headroom = 1 - limitThreshold
+        let shaped = limitThreshold + headroom * tanh((magnitude - limitThreshold) / headroom)
+        return x < 0 ? -shaped : shaped
     }
 }

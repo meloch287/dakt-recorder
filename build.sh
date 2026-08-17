@@ -13,7 +13,7 @@ if ! command -v swiftc >/dev/null 2>&1; then
 fi
 
 echo "Собираю для ${TARGET}…"
-rm -rf "$APP"
+rm -rf "$APP" build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Info.plist "$APP/Contents/Info.plist"
 
@@ -22,7 +22,17 @@ swiftc -O -target "$TARGET" \
     -o "$APP/Contents/MacOS/MeetingRecorder" \
     Sources/*.swift
 
-# Ad-hoc подпись нужна, чтобы macOS помнил выданные разрешения между запусками.
+# Иконка рисуется кодом, чтобы в репозитории не лежали бинарные ассеты.
+if command -v iconutil >/dev/null 2>&1; then
+    mkdir -p build
+    swift Tools/MakeIcon.swift build/MeetingRecorder.iconset >/dev/null
+    iconutil -c icns build/MeetingRecorder.iconset -o "$APP/Contents/Resources/MeetingRecorder.icns"
+    rm -rf build
+else
+    echo "iconutil недоступен — приложение соберётся без иконки."
+fi
+
+# Ad-hoc подпись: без неё macOS может забыть выданные разрешения после сборки.
 codesign --force --sign - --identifier local.meetingrecorder "$APP" >/dev/null
 
 echo "Готово: $(pwd)/$APP"

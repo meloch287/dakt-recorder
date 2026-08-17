@@ -10,8 +10,12 @@ final class RecorderController: ObservableObject {
     @Published private(set) var elapsed: TimeInterval = 0
     @Published private(set) var micLevel: Float = 0
     @Published private(set) var systemLevel: Float = 0
-    @Published private(set) var lastFolder: URL?
+    @Published private(set) var lastMix: URL?
     @Published var errorMessage: String?
+
+    /// Микрофон и системный звук складываются, поэтому каждой дорожке оставляем запас
+    /// по громкости — иначе одновременная речь уходит в лимитер.
+    private let trackGain: Float = 0.8
 
     private var mic: MicCapture?
     private var system: SystemAudioCapture?
@@ -34,6 +38,13 @@ final class RecorderController: ObservableObject {
         }
     }
 
+    /// Вызывается при выходе из приложения: дописывает файлы и сводит дорожки,
+    /// чтобы запись не потерялась.
+    func finishBeforeTermination() async {
+        guard isRecording else { return }
+        await stop()
+    }
+
     private func start() async {
         guard !isRecording, !isBusy else { return }
         isBusy = true
@@ -43,7 +54,7 @@ final class RecorderController: ObservableObject {
 
         guard await requestMicrophoneAccess() else {
             status = "Готов к записи"
-            errorMessage = "Нет доступа к микрофону. Системные настройки → Конфиденциальность → Микрофон."
+            errorMessage = "Нет доступа к микрофону. Системные настройки → Конфиденциальность и безопасность → Микрофон."
             return
         }
 
@@ -73,6 +84,7 @@ final class RecorderController: ObservableObject {
             mic = nil
             await system?.stop()
             system = nil
+            discardEmptyFolder()
             status = "Готов к записи"
             errorMessage = describe(error)
         }
@@ -92,6 +104,7 @@ final class RecorderController: ObservableObject {
         let folder = self.folder
         self.mic = nil
         self.system = nil
+        self.folder = nil
 
         mic?.stop()
         await system?.stop()
@@ -108,20 +121,21 @@ final class RecorderController: ObservableObject {
 
         var sources: [MixSource] = []
         if let mic, mic.frameCount > 0 {
-            sources.append(MixSource(url: mic.fileURL, startOffset: (micStart ?? base) - base, gain: 1.0))
+            sources.append(MixSource(url: mic.fileURL, startOffset: (micStart ?? base) - base, gain: trackGain))
         }
         if let system, system.frameCount > 0 {
-            sources.append(MixSource(url: system.fileURL, startOffset: (systemStart ?? base) - base, gain: 1.0))
+            sources.append(MixSource(url: system.fileURL, startOffset: (systemStart ?? base) - base, gain: trackGain))
         }
 
         let hasSystemAudio = (system?.frameCount ?? 0) > 0
         let output = folder.appendingPathComponent("mix.m4a")
 
         do {
-            try await Task.detached(priority: .userInitiated) {
+            let written = try await Task.detached(priority: .userInitiated) {
                 try Mixdown.mix(sources: sources, to: output)
             }.value
-            lastFolder = folder
+            lastMix = written
+            errorMessage = nil
             status = hasSystemAudio
                 ? "Готово: \(folder.lastPathComponent)"
                 : "Готово, но системный звук пустой — проверь разрешение на запись экрана"
@@ -133,8 +147,8 @@ final class RecorderController: ObservableObject {
     }
 
     func revealLastRecording() {
-        guard let lastFolder else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([lastFolder.appendingPathComponent("mix.m4a")])
+        guard let lastMix else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([lastMix])
     }
 
     // MARK: - Служебное
@@ -155,6 +169,16 @@ final class RecorderController: ObservableObject {
         let folder = root.appendingPathComponent(formatter.string(from: Date()), isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
+    }
+
+    /// Если запись не стартовала, пустая папка на диске не нужна.
+    private func discardEmptyFolder() {
+        guard let folder else { return }
+        self.folder = nil
+        let contents = try? FileManager.default.contentsOfDirectory(atPath: folder.path)
+        if contents?.isEmpty ?? false {
+            try? FileManager.default.removeItem(at: folder)
+        }
     }
 
     private func startTimer() {
@@ -179,7 +203,7 @@ final class RecorderController: ObservableObject {
             return recorderError.localizedDescription
         }
         let nsError = error as NSError
-        if nsError.domain == "com.apple.ScreenCaptureKit.SCStreamErrorDomain" || nsError.domain.contains("SCStream") {
+        if nsError.domain.contains("SCStream") {
             return "Нет доступа к записи экрана и системного звука. Открой Системные настройки → Конфиденциальность и безопасность → Запись экрана, включи MeetingRecorder и перезапусти приложение."
         }
         return nsError.localizedDescription
