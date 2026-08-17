@@ -9,6 +9,26 @@
 > Код написан, но ни разу не собирался автором: первая сборка на твоей машине
 > заодно и проверочная.
 
+## Установка
+
+Репозиторий приватный, поэтому клонировать нужно с авторизацией:
+
+```sh
+brew install gh          # если gh ещё нет
+gh auth login
+gh repo clone meloch287/meeting-recorder
+cd meeting-recorder
+./build.sh
+open MeetingRecorder.app
+```
+
+Без `gh` подойдёт обычный git — пароль не примут, нужен personal access token
+вместо него:
+
+```sh
+git clone https://github.com/meloch287/meeting-recorder.git
+```
+
 ## Требования
 
 - macOS 13 или новее
@@ -23,7 +43,8 @@ Xcode-проект не нужен, сборка идёт напрямую че�
 open MeetingRecorder.app
 ```
 
-Скрипт собирает бандл `MeetingRecorder.app`, рисует иконку и подписывает
+Пересобрать после правок — тот же `./build.sh`, приложение перед этим лучше
+закрыть. Скрипт собирает бандл `MeetingRecorder.app`, рисует иконку и подписывает
 результат ad-hoc — без подписи macOS может забыть выданные разрешения после
 очередной сборки.
 
