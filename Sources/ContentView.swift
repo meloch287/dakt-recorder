@@ -9,15 +9,9 @@ struct ContentView: View {
         VStack(spacing: 20) {
             header
 
-            Text(recorder.elapsedText)
-                .font(.system(size: 44, weight: .light, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(recorder.isRecording ? Color.primary : Color.secondary)
-
-            VStack(spacing: 10) {
-                LevelRow(title: "Микрофон", level: recorder.micLevel, tint: .green)
-                LevelRow(title: "Zoom / системный звук", level: recorder.systemLevel, tint: .blue)
-            }
+            // Таймер и уровни живут в отдельном объекте: их частые обновления
+            // не должны дёргать всё окно и строку меню.
+            MeterSection(meter: recorder.meter, isRecording: recorder.isRecording)
 
             HStack(spacing: 18) {
                 recordButton
@@ -121,6 +115,25 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .disabled(recorder.isBusy)
         .help(recorder.isRecording ? "Остановить запись" : "Начать запись")
+    }
+}
+
+private struct MeterSection: View {
+    @ObservedObject var meter: RecordingMeter
+    let isRecording: Bool
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text(meter.elapsedText)
+                .font(.system(size: 44, weight: .light, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(isRecording ? Color.primary : Color.secondary)
+
+            VStack(spacing: 10) {
+                LevelRow(title: "Микрофон", level: meter.micLevel, tint: .green)
+                LevelRow(title: "Zoom / системный звук", level: meter.systemLevel, tint: .blue)
+            }
+        }
     }
 }
 

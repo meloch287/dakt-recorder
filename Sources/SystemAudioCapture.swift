@@ -38,9 +38,29 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         writer.onLevel = { [weak self] in self?.onLevel?($0) }
     }
 
+    /// Запрос источников не должен висеть вечно: без выданного разрешения система
+    /// иногда не отвечает вовсе, и приложение выглядит зависшим.
+    private static func shareableContent() async throws -> SCShareableContent {
+        try await withThrowingTaskGroup(of: SCShareableContent.self) { group in
+            group.addTask {
+                try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: 12_000_000_000)
+                throw RecorderError.message("Система не ответила на запрос доступа к записи экрана. Проверьте Системные настройки → Конфиденциальность и безопасность → Запись экрана, включите DaktRecorder и перезапустите приложение.")
+            }
+            let result = try await group.next()
+            group.cancelAll()
+            guard let result else {
+                throw RecorderError.message("Не удалось получить список источников звука.")
+            }
+            return result
+        }
+    }
+
     /// Приложения, которые можно выбрать источником звука.
     static func applications() async throws -> [Application] {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        let content = try await shareableContent()
         var seen = Set<String>()
         var result: [Application] = []
         for app in content.applications {
@@ -53,7 +73,7 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     func start() async throws {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        let content = try await Self.shareableContent()
         guard let display = content.displays.first else {
             throw RecorderError.message("Не найден дисплей — системный звук захватить нельзя.")
         }

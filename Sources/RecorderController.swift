@@ -8,9 +8,6 @@ final class RecorderController: ObservableObject {
     @Published private(set) var isPaused = false
     @Published private(set) var isBusy = false
     @Published private(set) var status = "Готов к записи"
-    @Published private(set) var elapsed: TimeInterval = 0
-    @Published private(set) var micLevel: Float = 0
-    @Published private(set) var systemLevel: Float = 0
     @Published private(set) var lastMix: URL?
     @Published private(set) var freeSpaceText = ""
     /// Папки, где остались сырые дорожки без сведения — например после падения.
@@ -18,11 +15,11 @@ final class RecorderController: ObservableObject {
     @Published var errorMessage: String?
 
     let preferences: Preferences
+    let meter = RecordingMeter()
 
     /// Микрофон и системный звук складываются, поэтому каждой дорожке оставляем запас
     /// по громкости — иначе одновременная речь уходит в лимитер.
     private let trackGain: Float = 0.8
-    private let silenceLevel: Float = 0.02
 
     private var mic: MicCapture?
     private var system: SystemAudioCapture?
@@ -37,11 +34,6 @@ final class RecorderController: ObservableObject {
         self.preferences = preferences
         refreshFreeSpace()
         refreshUnfinished()
-    }
-
-    var elapsedText: String {
-        let total = Int(elapsed)
-        return String(format: "%02d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
     }
 
     // MARK: - Управление
@@ -62,8 +54,7 @@ final class RecorderController: ObservableObject {
         if isPaused {
             pauseStarted = Date()
             status = "Пауза"
-            micLevel = 0
-            systemLevel = 0
+            meter.reset()
         } else {
             if let pauseStarted {
                 pausedTotal += Date().timeIntervalSince(pauseStarted)
@@ -113,7 +104,7 @@ final class RecorderController: ObservableObject {
 
             let mic = MicCapture(url: folder.appendingPathComponent("mic.\(ext)"), options: options)
             mic.onError = { [weak self] text in Task { @MainActor in self?.errorMessage = text } }
-            mic.onLevel = { [weak self] level in Task { @MainActor in self?.micLevel = level } }
+            mic.onLevel = { [weak self] level in Task { @MainActor in self?.meter.report(mic: level) } }
             try mic.start()
             self.mic = mic
 
@@ -122,7 +113,7 @@ final class RecorderController: ObservableObject {
                 targetBundleID: preferences.source == .application ? preferences.targetBundleID : "",
                 compressed: preferences.compressRawTracks)
             system.onError = { [weak self] text in Task { @MainActor in self?.errorMessage = text } }
-            system.onLevel = { [weak self] level in Task { @MainActor in self?.systemLevel = level } }
+            system.onLevel = { [weak self] level in Task { @MainActor in self?.meter.report(system: level) } }
             try await system.start()
             self.system = system
 
@@ -132,7 +123,7 @@ final class RecorderController: ObservableObject {
             pausedTotal = 0
             pauseStarted = nil
             lastLoudDate = Date()
-            elapsed = 0
+            meter.reset()
             status = "Идёт запись"
             startTimer()
         } catch {
@@ -153,8 +144,7 @@ final class RecorderController: ObservableObject {
         isPaused = false
         stopTimer()
         status = "Сохраняю…"
-        micLevel = 0
-        systemLevel = 0
+        meter.reset()
 
         let mic = self.mic
         let system = self.system
@@ -338,15 +328,14 @@ final class RecorderController: ObservableObject {
     private func tick() {
         guard let start = startDate else { return }
         if !isPaused {
-            elapsed = Date().timeIntervalSince(start) - pausedTotal
-            if micLevel > silenceLevel || systemLevel > silenceLevel {
+            meter.setElapsed(Date().timeIntervalSince(start) - pausedTotal)
+            if meter.isLoud {
                 lastLoudDate = Date()
             }
             checkSilence()
         }
         // Индикаторы плавно опадают, если звука нет.
-        micLevel *= 0.6
-        systemLevel *= 0.6
+        meter.decay()
     }
 
     private func checkSilence() {
